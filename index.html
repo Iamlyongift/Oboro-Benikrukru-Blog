@@ -19,6 +19,7 @@
   <div id="root"></div>
   <script type="text/babel">
     const { useState, useEffect, useRef } = React;
+   
 
     /* ── Supabase client ── */
     const SUPA_URL = 'https://lqixzgqwkqzaqmhxybep.supabase.co';
@@ -155,6 +156,7 @@
       const [uploadProgress, setUploadProgress] = useState(0);
       const [toast, setToast] = useState(null);
       const heroFileRef = useRef();
+       const [menuOpen, setMenuOpen] = React.useState(false);
 
       /* load posts from Supabase */
       useEffect(() => { fetchPosts() }, []);
@@ -303,14 +305,32 @@
           <nav className="topnav">
             <div className="brand" onClick={goHome}>
               <div className="brand-logo">OB</div>
-              <div><div className="brand-name">Oboro & Benikrukru Schools</div><div className="brand-sub">Official School Blog</div></div>
+              <div>
+                <div className="brand-name">Oboro & Benikrukru Schools</div>
+                <div className="brand-sub">Official School Blog</div>
+              </div>
             </div>
-            <div className="nav-links">
-              <button className={`nav-btn${page === 'home' ? ' active' : ''}`} onClick={goHome}>Home</button>
-              <button className={`nav-btn${page === 'blog' ? ' active' : ''}`} onClick={goBlog}>Blog</button>
-              <button className={`nav-btn${page === 'about' ? ' active' : ''}`} onClick={() => { setPage('about'); setSelPost(null); setShowEditor(false) }}>About</button>
-              {user && <button className={`nav-btn${page === 'dashboard' ? ' active' : ''}`} onClick={() => { setPage('dashboard'); setShowEditor(false) }}>Dashboard</button>}
-              {user ? <button className="nav-login" onClick={logout}>Logout ({user.username})</button> : <button className="nav-login" onClick={() => setShowAuth(true)}>Staff Login</button>}
+
+            {/* Hamburger toggle - only visible on mobile */}
+          <button
+  className={`nav-toggle${menuOpen ? ' open' : ''}`}
+  onClick={() => setMenuOpen(o => !o)}
+  aria-label="Toggle menu"
+>
+  <span />
+  <span />
+  <span />
+</button>
+
+            <div className={`nav-links${menuOpen ? ' open' : ''}`}>
+              <button className={`nav-btn${page === 'home' ? ' active' : ''}`} onClick={() => { goHome(); setMenuOpen(false) }}>Home</button>
+              <button className={`nav-btn${page === 'blog' ? ' active' : ''}`} onClick={() => { goBlog(); setMenuOpen(false) }}>Blog</button>
+              <button className={`nav-btn${page === 'about' ? ' active' : ''}`} onClick={() => { setPage('about'); setSelPost(null); setShowEditor(false); setMenuOpen(false) }}>About</button>
+              {user && <button className={`nav-btn${page === 'dashboard' ? ' active' : ''}`} onClick={() => { setPage('dashboard'); setShowEditor(false); setMenuOpen(false) }}>Dashboard</button>}
+              {user
+                ? <button className="nav-login" onClick={() => { logout(); setMenuOpen(false) }}>Logout ({user.username})</button>
+                : <button className="nav-login" onClick={() => { setShowAuth(true); setMenuOpen(false) }}>Staff Login</button>
+              }
             </div>
           </nav>
           <div className="stripe" />

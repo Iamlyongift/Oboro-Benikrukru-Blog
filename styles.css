@@ -123,6 +123,79 @@ body {
   background: #a93226
 }
 
+
+/* Hamburger button - hidden on desktop */
+.nav-toggle {
+  display: none;
+  flex-direction: column;
+  gap: 5px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 8px;
+}
+
+.nav-toggle span {
+  display: block;
+  width: 24px;
+  height: 2px;
+  background: white;
+  border-radius: 2px;
+  transition: all .3s;
+}
+
+@media (max-width: 640px) {
+  .topnav {
+    flex-wrap: wrap;
+    height: auto;
+    padding: 12px 1rem;
+  }
+
+  .nav-toggle {
+    display: flex;
+  }
+
+  /* Animated hamburger → X */
+  .nav-toggle.open span:nth-child(1) {
+    transform: translateY(7px) rotate(45deg);
+  }
+  .nav-toggle.open span:nth-child(2) {
+    opacity: 0;
+    transform: scaleX(0);
+  }
+  .nav-toggle.open span:nth-child(3) {
+    transform: translateY(-7px) rotate(-45deg);
+  }
+
+  .nav-links {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+    padding: 0 0 0;
+    overflow: hidden;
+    max-height: 0;
+    opacity: 0;
+    transition: max-height 0.35s ease, opacity 0.3s ease, padding 0.3s ease;
+  }
+
+  .nav-links.open {
+    display: flex;
+    max-height: 400px;
+    opacity: 1;
+    padding: 10px 0 6px;
+  }
+
+  .nav-btn,
+  .nav-login {
+    text-align: left;
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: 6px;
+  }
+}
+
+
 .stripe {
   height: 5px;
   background: linear-gradient(90deg, var(--red) 0%, var(--blue-mid) 55%, var(--blue) 100%)
