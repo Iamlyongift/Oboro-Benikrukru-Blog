@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+  <title>Oboro & Benikrukru Schools Blog</title>
+  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800;900&family=Source+Sans+3:wght@400;500;600;700&display=swap"
+    rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    /* ── Supabase client ── */
+    const SUPA_URL = 'https://lqixzgqwkqzaqmhxybep.supabase.co';
+    const SUPA_KEY = 'sb_publishable_FCvs0VYi_NlJ7qFOCQsW7w_liY15uY7';
+    const sb = supabase.createClient(SUPA_URL, SUPA_KEY);
+
+    /* ── Constants ── */
+    const ACCOUNTS = {
+      admin: { password: 'admin123', role: 'Admin', name: 'School Admin' },
+      teacher1: { password: 'teacher123', role: 'Teacher', name: 'Mr. Okoro Emmanuel' },
+      teacher2: { password: 'teacher456', role: 'Teacher', name: 'Mrs. Nwachukwu Grace' },
+    };
+    const CATEGORIES = ['All', 'Announcements', 'Academic News', 'Events & Activities', 'Student Achievements', 'Notices to Parents'];
+    const EMOJIS = { 'Announcements': '📢', 'Academic News': '📚', 'Events & Activities': '🎭', 'Student Achievements': '🏆', 'Notices to Parents': '📝' };
+    const CAT_RED = ['Events & Activities', 'Student Achievements'];
+    const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    const SCHOOL_EVENTS = {
+      '2025-9-2': 'Resumption Day', '2025-9-14': 'PTA Meeting',
+      '2025-10-1': 'Independence Day (Holiday)', '2025-10-18': 'Mid-term Break Begins',
+      '2025-10-21': 'Mid-term Break Ends', '2025-10-25': 'Annual Sports Day',
+      '2025-11-28': 'End of First Term Exams', '2025-12-5': 'Christmas Break Begins',
+      '2026-1-5': 'Second Term Resumes', '2026-3-28': 'Second Term Ends',
+      '2026-4-20': 'Third Term Resumes', '2026-6-26': 'Third Term Ends',
+    };
+    const ANNOUNCEMENTS = [
+      { text: 'PTA Meeting — Saturday 14th Sept, 10am', date: 'Sept 8' },
+      { text: 'Mid-term break: Oct 18–20. Resumes Oct 21st.', date: 'Sept 5' },
+      { text: 'Sports Day registration now open.', date: 'Sept 12' },
+      { text: 'School fees deadline: Sept 30th.', date: 'Sept 1' },
+    ];
+    const SCHOOL_PHOTOS = [
+      'https://images.unsplash.com/photo-1580582932707-520aed937b7b?w=600&q=80',
+      'https://images.unsplash.com/photo-1509062522246-3755977927d7?w=600&q=80',
+      'https://images.unsplash.com/photo-1503676260728-1c00da094a0b?w=600&q=80',
+      'https://images.unsplash.com/photo-1544531585-9847b68c8c86?w=600&q=80',
+      'https://images.unsplash.com/photo-1497633762265-9d179a990aa6?w=600&q=80',
+      'https://images.unsplash.com/photo-1427504494785-3a9ca7044f45?w=600&q=80',
+    ];
+    const HERO_DEFAULT = 'https://images.unsplash.com/photo-1580582932707-520aed937b7b?w=1200&q=80';
+
+    /* ── Helpers ── */
+    function initials(n) { return (n || '?').split(' ').map(x => x[0]).join('').slice(0, 2).toUpperCase() }
+    function fmtDate(d) { return new Date(d).toLocaleDateString('en-NG', { day: 'numeric', month: 'short', year: 'numeric' }) }
+    function uid() { return Math.random().toString(36).slice(2) + Date.now().toString(36) }
+
+    /* ── Upload file to Supabase Storage ── */
+    async function uploadFile(file, folder = 'images') {
+      const ext = file.name.split('.').pop();
+      const path = `${folder}/${uid()}.${ext}`;
+      const { error } = await sb.storage.from('media').upload(path, file, { cacheControl: '3600', upsert: false });
+      if (error) throw error;
+      const { data } = sb.storage.from('media').getPublicUrl(path);
+      return data.publicUrl;
+    }
+
+    /* ── Calendar ── */
+    function Calendar() {
+      const now = new Date();
+      const [year, setYear] = useState(now.getFullYear());
+      const [month, setMonth] = useState(now.getMonth());
+      const firstDay = new Date(year, month, 1).getDay();
+      const daysInMonth = new Date(year, month + 1, 0).getDate();
+      const cells = [];
+      for (let i = 0; i < firstDay; i++)cells.push(null);
+      for (let d = 1; d <= daysInMonth; d++)cells.push(d);
+      const eventsThisMonth = Object.entries(SCHOOL_EVENTS).filter(([k]) => { const [y, m] = k.split('-').map(Number); return y === year && m === month + 1 });
+      function prev() { if (month === 0) { setMonth(11); setYear(y => y - 1) } else setMonth(m => m - 1) }
+      function next() { if (month === 11) { setMonth(0); setYear(y => y + 1) } else setMonth(m => m + 1) }
+      return (
+        <div className="sidebar-card">
+          <div className="cal-nav">
+            <button className="cal-nav-btn" onClick={prev}>‹</button>
+            <span className="cal-month">{MONTHS[month]} {year}</span>
+            <button className="cal-nav-btn" onClick={next}>›</button>
+          </div>
+          <div className="cal-grid">
+            {DAYS.map(d => <div key={d} className="cal-day-hdr">{d[0]}</div>)}
+            {cells.map((d, i) => {
+              if (!d) return <div key={i} className="cal-day empty" />;
+              const isToday = d === now.getDate() && month === now.getMonth() && year === now.getFullYear();
+              const hasEv = !!SCHOOL_EVENTS[`${year}-${month + 1}-${d}`];
+              return <div key={i} className={`cal-day${isToday ? ' today' : hasEv ? ' has-event' : ''}`} title={SCHOOL_EVENTS[`${year}-${month + 1}-${d}`] || ''}>{d}</div>;
+            })}
+          </div>
+          {eventsThisMonth.length > 0 && (
+            <div className="cal-events">
+              {eventsThisMonth.map(([k, v]) => (
+                <div className="cal-event-item" key={k}>
+                  <div className="cal-event-date">{k.split('-')[2]} {MONTHS[month]}</div>
+                  <div>{v}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    /* ── Toast ── */
+    function Toast({ msg, type, onDone }) {
+      useEffect(() => { const t = setTimeout(onDone, 3000); return () => clearTimeout(t) }, []);
+      return <div className={`toast ${type}`}>{msg}</div>;
+    }
+
+    /* ── Main App ── */
+    function App() {
+      const [posts, setPosts] = useState([]);
+      const [loading, setLoading] = useState(true);
+      const [page, setPage] = useState('home');
+      const [selPost, setSelPost] = useState(null);
+      const [cat, setCat] = useState('All');
+      const [showAuth, setShowAuth] = useState(false);
+      const [user, setUser] = useState(null);
+      const [authUser, setAuthUser] = useState('');
+      const [authPass, setAuthPass] = useState('');
+      const [authErr, setAuthErr] = useState('');
+      const [showEditor, setShowEditor] = useState(false);
+      const [editPost, setEditPost] = useState(null);
+      const [eTitle, setETitle] = useState('');
+      const [eCat, setECat] = useState('Announcements');
+      const [eBody, setEBody] = useState('');
+      const [aiPrompt, setAiPrompt] = useState('');
+      const [aiLoading, setAiLoading] = useState(false);
+      const [saving, setSaving] = useState(false);
+      const [cName, setCName] = useState('');
+      const [cText, setCText] = useState('');
+      const [cSaving, setCSaving] = useState(false);
+      const [heroImg, setHeroImg] = useState(HERO_DEFAULT);
+      const [lightbox, setLightbox] = useState(null);
+      const [mediaTab, setMediaTab] = useState('image');
+      const [uploadedImages, setUploadedImages] = useState([]);
+      const [uploadedVideos, setUploadedVideos] = useState([]);
+      const [uploadProgress, setUploadProgress] = useState(0);
+      const [toast, setToast] = useState(null);
+      const heroFileRef = useRef();
+
+      /* load posts from Supabase */
+      useEffect(() => { fetchPosts() }, []);
+
+      async function fetchPosts() {
+        setLoading(true);
+        const { data, error } = await sb.from('posts').select('*').order('created_at', { ascending: false });
+        if (!error && data) setPosts(data);
+        setLoading(false);
+      }
+
+      function showToast(msg, type = 'success') { setToast({ msg, type }) }
+
+      const filtered = cat === 'All' ? posts : posts.filter(p => p.category === cat);
+
+      function goHome() { setPage('home'); setSelPost(null); setShowEditor(false) }
+      function goBlog() { setPage('blog'); setSelPost(null); setShowEditor(false) }
+
+      function login() {
+        const acc = ACCOUNTS[authUser.trim().toLowerCase()];
+        if (acc && acc.password === authPass) {
+          setUser({ username: authUser, ...acc }); setShowAuth(false); setAuthErr(''); setAuthUser(''); setAuthPass('');
+          showToast(`Welcome back, ${acc.name}! 👋`);
+        } else setAuthErr('Invalid username or password.');
+      }
+      function logout() { setUser(null); setPage('home'); setShowEditor(false); showToast('Logged out successfully.') }
+
+      function openPost(p) { setSelPost(p); setPage('post'); setCName(''); setCText('') }
+
+      async function addComment() {
+        if (!cName.trim() || !cText.trim()) return;
+        setCSaving(true);
+        const newComment = { name: cName, text: cText, date: new Date().toISOString().slice(0, 10) };
+        const updatedComments = [...(selPost.comments || []), newComment];
+        const { error } = await sb.from('posts').update({ comments: updatedComments }).eq('id', selPost.id);
+        if (!error) {
+          const updated = { ...selPost, comments: updatedComments };
+          setSelPost(updated);
+          setPosts(posts.map(p => p.id === selPost.id ? updated : p));
+          setCName(''); setCText('');
+          showToast('Comment posted! 💬');
+        } else showToast('Failed to post comment.', 'error');
+        setCSaving(false);
+      }
+
+      function openEditor(p = null) {
+        if (p) { setETitle(p.title); setECat(p.category); setEBody(p.content); setEditPost(p); setUploadedImages(p.images || []); setUploadedVideos(p.videos || []) }
+        else { setETitle(''); setECat('Announcements'); setEBody(''); setEditPost(null); setUploadedImages([]); setUploadedVideos([]) }
+        setAiPrompt(''); setMediaTab('image'); setShowEditor(true); setPage('dashboard');
+      }
+
+      async function handleImageUpload(e) {
+        const files = Array.from(e.target.files);
+        if (!files.length) return;
+        setUploadProgress(10);
+        try {
+          const urls = [];
+          for (let i = 0; i < files.length; i++) {
+            const url = await uploadFile(files[i], 'images');
+            urls.push(url);
+            setUploadProgress(Math.round(((i + 1) / files.length) * 100));
+          }
+          setUploadedImages(prev => [...prev, ...urls]);
+          showToast(`${files.length} photo${files.length > 1 ? 's' : ''} uploaded! 🖼`);
+        } catch (err) { showToast('Upload failed: ' + err.message, 'error') }
+        setUploadProgress(0);
+        e.target.value = '';
+      }
+
+      async function handleVideoUpload(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        setUploadProgress(10);
+        try {
+          const url = await uploadFile(file, 'videos');
+          setUploadedVideos(prev => [...prev, url]);
+          showToast('Video uploaded! 🎬');
+        } catch (err) { showToast('Upload failed: ' + err.message, 'error') }
+        setUploadProgress(0);
+        e.target.value = '';
+      }
+
+      async function handleHeroUpload(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        try {
+          const url = await uploadFile(file, 'hero');
+          setHeroImg(url);
+          showToast('Hero photo updated! ✅');
+        } catch (err) { showToast('Upload failed: ' + err.message, 'error') }
+        e.target.value = '';
+      }
+
+      async function savePost() {
+        if (!eTitle.trim() || !eBody.trim()) return;
+        setSaving(true);
+        const cover = uploadedImages[0] || null;
+        const payload = {
+          title: eTitle, category: eCat, author: user.name,
+          date: new Date().toISOString().slice(0, 10),
+          excerpt: eBody.replace(/\n/g, ' ').slice(0, 150) + '...',
+          content: eBody, cover_url: cover,
+          images: uploadedImages, videos: uploadedVideos,
+          comments: editPost ? editPost.comments : [],
+        };
+        if (editPost) {
+          const { error } = await sb.from('posts').update(payload).eq('id', editPost.id);
+          if (!error) { showToast('Post updated! ✅'); await fetchPosts(); setShowEditor(false); }
+          else showToast('Save failed: ' + error.message, 'error');
+        } else {
+          const { error } = await sb.from('posts').insert([payload]);
+          if (!error) { showToast('Post published! 🎉'); await fetchPosts(); setShowEditor(false); }
+          else showToast('Publish failed: ' + error.message, 'error');
+        }
+        setSaving(false);
+      }
+
+      async function deletePost(id) {
+        if (!window.confirm('Delete this post?')) return;
+        const { error } = await sb.from('posts').delete().eq('id', id);
+        if (!error) { setPosts(posts.filter(p => p.id !== id)); showToast('Post deleted.'); }
+        else showToast('Delete failed.', 'error');
+      }
+
+      async function generateAI() {
+        if (!aiPrompt.trim()) return;
+        setAiLoading(true);
+        try {
+          const res = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 1000, messages: [{ role: 'user', content: `You are a Nigerian school blog writer for Oboro Primary School and Benikrukru Secondary School, Delta State. Write a warm, professional blog post body (no title) about: "${aiPrompt}". Category: ${eCat}. Write 2-4 paragraphs. Community-focused tone. Plain text only, no markdown.` }] })
+          });
+          const data = await res.json();
+          setEBody(data.content?.find(b => b.type === 'text')?.text || '');
+          showToast('AI content generated! ✨');
+        } catch (e) { showToast('AI generation failed.', 'error') }
+        setAiLoading(false);
+      }
+
+      return (
+        <div className="app">
+          {toast && <Toast msg={toast.msg} type={toast.type} onDone={() => setToast(null)} />}
+          {lightbox && <div className="lightbox" onClick={() => setLightbox(null)}><button className="lightbox-close">×</button><img src={lightbox} alt="" /></div>}
+
+          {/* NAV */}
+          <nav className="topnav">
+            <div className="brand" onClick={goHome}>
+              <div className="brand-logo">OB</div>
+              <div><div className="brand-name">Oboro & Benikrukru Schools</div><div className="brand-sub">Official School Blog</div></div>
+            </div>
+            <div className="nav-links">
+              <button className={`nav-btn${page === 'home' ? ' active' : ''}`} onClick={goHome}>Home</button>
+              <button className={`nav-btn${page === 'blog' ? ' active' : ''}`} onClick={goBlog}>Blog</button>
+              <button className={`nav-btn${page === 'about' ? ' active' : ''}`} onClick={() => { setPage('about'); setSelPost(null); setShowEditor(false) }}>About</button>
+              {user && <button className={`nav-btn${page === 'dashboard' ? ' active' : ''}`} onClick={() => { setPage('dashboard'); setShowEditor(false) }}>Dashboard</button>}
+              {user ? <button className="nav-login" onClick={logout}>Logout ({user.username})</button> : <button className="nav-login" onClick={() => setShowAuth(true)}>Staff Login</button>}
+            </div>
+          </nav>
+          <div className="stripe" />
+
+          {/* AUTH */}
+          {showAuth && (
+            <div className="auth-overlay" onClick={e => { if (e.target.className === 'auth-overlay') { setShowAuth(false); setAuthErr('') } }}>
+              <div className="auth-box">
+                <button className="auth-close" onClick={() => { setShowAuth(false); setAuthErr('') }}>×</button>
+                <div className="auth-logo-circle">OB</div>
+                <div className="auth-title">Staff Portal</div>
+                <div className="auth-sub">Sign in to manage the school blog</div>
+                <label className="auth-label">Username</label>
+                <input className="auth-input" value={authUser} onChange={e => setAuthUser(e.target.value)} placeholder="e.g. admin" onKeyDown={e => e.key === 'Enter' && login()} />
+                <label className="auth-label">Password</label>
+                <input className="auth-input" type="password" value={authPass} onChange={e => setAuthPass(e.target.value)} placeholder="Password" onKeyDown={e => e.key === 'Enter' && login()} />
+                <button className="auth-btn" onClick={login}>Sign In</button>
+                {authErr && <div className="auth-err">{authErr}</div>}
+                <div className="auth-hint">admin / admin123 · teacher1 / teacher123 · teacher2 / teacher456</div>
+              </div>
+            </div>
+          )}
+
+          {/* DASHBOARD */}
+          {page === 'dashboard' && user && (
+            showEditor ? (
+              <div className="editor-wrap">
+                <button className="back-btn" onClick={() => setShowEditor(false)}>← Back to Dashboard</button>
+                <div className="editor">
+                  <input className="editor-title-field" value={eTitle} onChange={e => setETitle(e.target.value)} placeholder="Post title..." />
+                  <div className="editor-row">
+                    <select className="editor-select" value={eCat} onChange={e => setECat(e.target.value)}>
+                      {CATEGORIES.slice(1).map(c => <option key={c}>{c}</option>)}
+                    </select>
+                    <div style={{ fontSize: '12px', color: 'var(--muted)', display: 'flex', alignItems: 'center' }}>Author: <strong style={{ marginLeft: '4px', color: 'var(--text)' }}>{user.name}</strong></div>
+                  </div>
+                  <div className="ai-bar">
+                    <span className="ai-tag">✨ AI Write</span>
+                    <input className="ai-prompt-input" value={aiPrompt} onChange={e => setAiPrompt(e.target.value)} placeholder="Describe what to write about..." onKeyDown={e => e.key === 'Enter' && generateAI()} />
+                    <button className="ai-gen-btn" onClick={generateAI} disabled={aiLoading}>{aiLoading ? 'Writing...' : 'Write for me'}</button>
+                  </div>
+                  <textarea className="editor-body" value={eBody} onChange={e => setEBody(e.target.value)} placeholder="Write your post here, or use AI above..." />
+                  <div className="media-section">
+                    <div className="media-section-title">📎 Media Attachments — saved to Supabase</div>
+                    <div className="media-type-tabs">
+                      <button className={`media-tab${mediaTab === 'image' ? ' active' : ''}`} onClick={() => setMediaTab('image')}>🖼 Photos</button>
+                      <button className={`media-tab${mediaTab === 'video' ? ' active' : ''}`} onClick={() => setMediaTab('video')}>🎬 Video</button>
+                    </div>
+                    {mediaTab === 'image' && (
+                      <>
+                        <div className="upload-drop">
+                          <input type="file" accept="image/*" multiple onChange={handleImageUpload} />
+                          <div className="upload-icon">🖼️</div>
+                          <div className="upload-label"><span>Click to upload photos</span> or drag and drop</div>
+                          <div className="upload-hint">JPG, PNG, WebP — multiple files allowed. First image becomes cover.</div>
+                        </div>
+                        {uploadProgress > 0 && <div className="upload-progress"><div className="upload-progress-bar" style={{ width: uploadProgress + '%' }} /></div>}
+                        {uploadedImages.length > 0 && (
+                          <div className="media-preview">
+                            {uploadedImages.map((src, i) => (
+                              <div className="media-prev-item" key={i}>
+                                <img src={src} alt="" />
+                                {i === 0 && <span style={{ position: 'absolute', bottom: 2, left: 2, background: 'var(--blue)', color: 'white', fontSize: '9px', padding: '2px 5px', borderRadius: '3px', fontWeight: 700 }}>COVER</span>}
+                                <button className="media-remove" onClick={() => setUploadedImages(imgs => imgs.filter((_, j) => j !== i))}>×</button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </>
+                    )}
+                    {mediaTab === 'video' && (
+                      <>
+                        <div className="upload-drop">
+                          <input type="file" accept="video/*" onChange={handleVideoUpload} />
+                          <div className="upload-icon">🎬</div>
+                          <div className="upload-label"><span>Click to upload a video</span></div>
+                          <div className="upload-hint">MP4, MOV, WebM</div>
+                        </div>
+                        {uploadProgress > 0 && <div className="upload-progress"><div className="upload-progress-bar" style={{ width: uploadProgress + '%' }} /></div>}
+                        {uploadedVideos.length > 0 && (
+                          <div className="media-preview">
+                            {uploadedVideos.map((src, i) => (
+                              <div className="media-prev-item" key={i}>
+                                <video src={src} controls />
+                                <button className="media-remove" onClick={() => setUploadedVideos(vs => vs.filter((_, j) => j !== i))}>×</button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                  <div className="editor-footer">
+                    <button className="cancel-btn" onClick={() => setShowEditor(false)}>Cancel</button>
+                    <button className="save-btn" onClick={savePost} disabled={saving}>{saving ? 'Publishing...' : 'Publish Post'}</button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="dashboard">
+                <div className="dash-header">
+                  <div className="dash-title">Dashboard — {user.role}</div>
+                  <button className="dash-new-btn" onClick={() => openEditor()}>+ New Post</button>
+                </div>
+                {loading ? <div className="loading-screen"><div className="spinner" /><div className="loading-text">Loading posts...</div></div> : (
+                  <div className="dash-table">
+                    <div className="dash-row dash-row-header"><div /><div>Post</div><div>Category</div><div>Actions</div></div>
+                    {posts.length === 0 && <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--muted)', fontSize: '14px' }}>No posts yet. Create your first one!</div>}
+                    {posts.map(p => (
+                      <div className="dash-row" key={p.id}>
+                        <div className="dash-thumb">{p.cover_url ? <img src={p.cover_url} alt="" /> : <span>{EMOJIS[p.category] || '📄'}</span>}</div>
+                        <div><div className="dash-post-title">{p.title}</div><div className="dash-post-meta">{p.author} · {fmtDate(p.date)}</div></div>
+                        <div><span className={`cat-tag${CAT_RED.includes(p.category) ? ' red' : ''}`}>{p.category}</span></div>
+                        <div className="dash-actions">
+                          <button className="edit-btn" onClick={() => openEditor(p)}>Edit</button>
+                          {user.role === 'Admin' && <button className="del-btn" onClick={() => deletePost(p.id)}>Delete</button>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          )}
+
+          {/* SINGLE POST */}
+          {page === 'post' && selPost && (
+            <div className="post-view">
+              <button className="back-btn" onClick={() => { setPage('blog'); setSelPost(null) }}>← Back to Blog</button>
+              {selPost.videos && selPost.videos.length > 0
+                ? <video className="post-video" src={selPost.videos[0]} controls />
+                : selPost.cover_url
+                  ? <img className="post-cover" src={selPost.cover_url} alt={selPost.title} />
+                  : <div className="post-cover-placeholder">{EMOJIS[selPost.category] || '📄'}</div>
+              }
+              <span className={`cat-tag${CAT_RED.includes(selPost.category) ? ' red' : ''}`}>{selPost.category}</span>
+              <h1 className="post-title-full" style={{ marginTop: '10px' }}>{selPost.title}</h1>
+              <div className="post-byline">
+                <div className="byline-avatar">{initials(selPost.author)}</div>
+                <div><div className="byline-name">{selPost.author}</div><div className="byline-date">{fmtDate(selPost.date)}</div></div>
+              </div>
+              <div className="post-content">{selPost.content}</div>
+              {selPost.images && selPost.images.length > 1 && (
+                <div className="post-gallery">{selPost.images.slice(1).map((src, i) => <img key={i} src={src} alt="" onClick={() => setLightbox(src)} />)}</div>
+              )}
+              {selPost.videos && selPost.videos.slice(1).map((src, i) => <video key={i} className="post-video" src={src} controls style={{ marginTop: '1rem' }} />)}
+              <div className="comments-section">
+                <div className="comments-title">Comments ({(selPost.comments || []).length})</div>
+                {(selPost.comments || []).map((c, i) => (
+                  <div className="comment-item" key={i}>
+                    <div className="comment-avatar">{initials(c.name)}</div>
+                    <div><span className="comment-name">{c.name}</span><span className="comment-date">{fmtDate(c.date)}</span><div className="comment-text">{c.text}</div></div>
+                  </div>
+                ))}
+                <div className="comment-form">
+                  <input value={cName} onChange={e => setCName(e.target.value)} placeholder="Your name" />
+                  <textarea value={cText} onChange={e => setCText(e.target.value)} placeholder="Leave a comment..." />
+                  <button className="comment-submit" onClick={addComment} disabled={cSaving}>{cSaving ? 'Posting...' : 'Post Comment'}</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ABOUT */}
+          {page === 'about' && (
+            <>
+              <div className="about-hero">
+                <img src="https://images.unsplash.com/photo-1509062522246-3755977927d7?w=1200&q=80" alt="School" />
+                <div className="about-hero-overlay">
+                  <h1>About Our Schools</h1>
+                  <p>Oboro Primary School & Benikrukru Secondary School — shaping futures, building character, and celebrating excellence in Delta State.</p>
+                </div>
+              </div>
+              <div className="about-content">
+                <div className="about-grid">
+                  <div className="about-card">
+                    <h3>🏫 Oboro Primary School</h3>
+                    <p>Oboro Primary School provides a strong academic foundation for young learners. We nurture curiosity, discipline, and a love for learning in a safe and welcoming environment.</p>
+                    <ul>
+                      <li>Nursery 1 to Primary 6</li>
+                      <li>Qualified, dedicated teaching staff</li>
+                      <li>After-school reading and numeracy clubs</li>
+                      <li>Safe and monitored school environment</li>
+                    </ul>
+                  </div>
+                  <div className="about-card">
+                    <h3>🏫 Benikrukru Secondary School</h3>
+                    <p>Benikrukru Secondary School prepares students for WAEC, NECO, and beyond. Our curriculum balances academics, vocational skills, and character development.</p>
+                    <ul>
+                      <li>JSS 1 to SS 3</li>
+                      <li>Science, Arts, and Commercial streams</li>
+                      <li>Annual academic competition teams</li>
+                      <li>Clubs: Debate, Science, Drama, Sports</li>
+                    </ul>
+                  </div>
+                </div>
+                <div className="about-section-title">📸 School Life in Pictures</div>
+                <div className="about-section-sub">A glimpse into the vibrant community of our schools — from classrooms to celebrations.</div>
+                <div className="photo-gallery">
+                  {SCHOOL_PHOTOS.map((src, i) => (
+                    <div className="gallery-item" key={i} onClick={() => setLightbox(src)}>
+                      <img src={src} alt={`School photo ${i + 1}`} />
+                    </div>
+                  ))}
+                </div>
+                <div className="about-section-title">👩‍🏫 Meet Our Staff</div>
+                <div className="staff-grid">
+                  {[{ name: 'Mr. Chukwudi Eze', role: 'Principal' }, { name: 'Mrs. Ngozi Okafor', role: 'Vice Principal' }, { name: 'Mr. Okoro Emmanuel', role: 'Mathematics' }, { name: 'Mrs. Nwachukwu Grace', role: 'English Language' }, { name: 'Mr. Amara Ihejirika', role: 'Basic Science' }, { name: 'Mrs. Stella Obi', role: 'Social Studies' }].map((s, i) => (
+                    <div className="staff-card" key={i}>
+                      <div className="staff-avatar">{initials(s.name)}</div>
+                      <div className="staff-name">{s.name}</div>
+                      <div className="staff-role">{s.role}</div>
+                    </div>
+                  ))}
+                </div>
+                <div className="about-section-title">🌟 Our Core Values</div>
+                <div className="values-row">
+                  {[{ icon: '📖', title: 'Academic Excellence', desc: 'We set high standards and support every student to achieve their best.' }, { icon: '🤝', title: 'Community & Unity', desc: 'We are one community — students, parents, and teachers together.' }, { icon: '🌿', title: 'Integrity', desc: 'We teach honesty, fairness, and respect in all that we do.' }, { icon: '🏅', title: 'Achievement', desc: 'We celebrate success in academics, sports, arts, and character.' }].map((v, i) => (
+                    <div className="value-card" key={i}>
+                      <div className="value-icon">{v.icon}</div>
+                      <div className="value-title">{v.title}</div>
+                      <div className="value-desc">{v.desc}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* HOME + BLOG */}
+          {(page === 'home' || page === 'blog') && !selPost && (
+            <>
+              {page === 'home' && (
+                <>
+                  <div className="hero">
+                    <img className="hero-bg" src={heroImg} alt="School" />
+                    <div className="hero-overlay" />
+                    <div className="hero-content">
+                      <div className="hero-badge">Official School Blog</div>
+                      <h1>Oboro Primary & Benikrukru Secondary Schools</h1>
+                      <p>Stay informed with the latest news, events, academic updates, and announcements from our school community.</p>
+                      <div className="hero-btns">
+                        <button className="btn-white" onClick={goBlog}>Read Latest Posts</button>
+                        <button className="btn-outline-w" onClick={() => { setPage('about'); setSelPost(null) }}>About Our Schools</button>
+                      </div>
+                    </div>
+                    {user && user.role === 'Admin' && (
+                      <>
+                        <button className="hero-change-btn" onClick={() => heroFileRef.current.click()}>🖼 Change Hero Photo</button>
+                        <input ref={heroFileRef} type="file" accept="image/*" className="hero-file-input" onChange={handleHeroUpload} />
+                      </>
+                    )}
+                  </div>
+                  <div className="photo-strip">
+                    {SCHOOL_PHOTOS.slice(0, 5).map((src, i) => (
+                      <div className="photo-strip-item" key={i}><img src={src} alt="" /></div>
+                    ))}
+                  </div>
+                </>
+              )}
+              <div className="cat-bar">
+                {CATEGORIES.map(c => <button key={c} className={`cat-pill${cat === c ? ' active' : ''}`} onClick={() => setCat(c)}>{c}</button>)}
+              </div>
+              <div className="main">
+                <div>
+                  {page === 'home' && <div style={{ fontSize: '13px', color: 'var(--muted)', marginBottom: '14px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.06em' }}>Latest Posts</div>}
+                  {loading ? <div className="loading-screen"><div className="spinner" /><div className="loading-text">Loading posts from Supabase...</div></div> : (
+                    <div className="post-grid">
+                      {filtered.length === 0 && <div style={{ color: 'var(--muted)', fontSize: '14px', padding: '2rem 0', textAlign: 'center' }}>No posts in this category yet.</div>}
+                      {filtered.map(p => (
+                        <div className="post-card" key={p.id} onClick={() => openPost(p)}>
+                          <div className="card-img">
+                            {p.cover_url ? <img src={p.cover_url} alt={p.title} /> : <span className="card-img-emoji">{EMOJIS[p.category] || '📄'}</span>}
+                          </div>
+                          <div className="card-body">
+                            <div className="card-meta">
+                              <span className={`cat-tag${CAT_RED.includes(p.category) ? ' red' : ''}`}>{p.category}</span>
+                              <span className="date-txt">{fmtDate(p.date)}</span>
+                              {p.images && p.images.length > 0 && <span style={{ fontSize: '11px', color: 'var(--muted)' }}>🖼 {p.images.length}</span>}
+                              {p.videos && p.videos.length > 0 && <span style={{ fontSize: '11px', color: 'var(--muted)' }}>🎬</span>}
+                            </div>
+                            <div className="card-title">{p.title}</div>
+                            <div className="card-excerpt">{p.excerpt}</div>
+                            <div className="card-footer">
+                              <div className="author-row"><div className="avatar">{initials(p.author)}</div><span className="author-name">{p.author}</span></div>
+                              <span className="read-more">Read more →</span>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <aside className="sidebar">
+                  <div className="sidebar-card">
+                    <div className="sidebar-title">Quick Announcements</div>
+                    {ANNOUNCEMENTS.map((a, i) => (
+                      <div className="ann-item" key={i}>
+                        <div className="ann-dot" />
+                        <div><div className="ann-text">{a.text}</div><div className="ann-date">{a.date}</div></div>
+                      </div>
+                    ))}
+                  </div>
+                  <Calendar />
+                  <div className="sidebar-card">
+                    <div className="sidebar-title">Blog Stats</div>
+                    <div className="stats-grid">
+                      <div className="stat-box"><div className="stat-num">{posts.length}</div><div className="stat-label">Posts</div></div>
+                      <div className="stat-box"><div className="stat-num">{posts.reduce((a, p) => a + (p.comments || []).length, 0)}</div><div className="stat-label">Comments</div></div>
+                      <div className="stat-box"><div className="stat-num">5</div><div className="stat-label">Categories</div></div>
+                      <div className="stat-box"><div className="stat-num">2</div><div className="stat-label">Schools</div></div>
+                    </div>
+                  </div>
+                </aside>
+              </div>
+            </>
+          )}
+
+          <div style={{ flexGrow: 1 }} />
+          <footer className="footer">
+            <div className="footer-inner">
+              <div className="footer-col"><h4>Our Schools</h4><p>Oboro Primary School<br />Benikrukru Secondary School<br />Delta State, Nigeria</p></div>
+              <div className="footer-col"><h4>Quick Links</h4><a onClick={goHome}>Home</a><a onClick={goBlog}>Blog</a><a onClick={() => { setPage('about'); setSelPost(null) }}>About</a></div>
+              <div className="footer-col"><h4>Contact</h4><p>For enquiries, contact the school office<br />Mon – Fri, 8am – 3pm<br />Term time only</p></div>
+            </div>
+            <div className="footer-bottom">© {new Date().getFullYear()} Oboro Primary & Benikrukru Secondary Schools · All rights reserved</div>
+          </footer>
+        </div>
+      );
+    }
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+
+</html>
