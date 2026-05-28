@@ -20,32 +20,16 @@
   <script type="text/babel">
     const { useState, useEffect, useRef } = React;
 
-
     /* ── Supabase client ── */
     const SUPA_URL = 'https://lqixzgqwkqzaqmhxybep.supabase.co';
     const SUPA_KEY = 'sb_publishable_FCvs0VYi_NlJ7qFOCQsW7w_liY15uY7';
     const sb = supabase.createClient(SUPA_URL, SUPA_KEY);
-
 
     const CATEGORIES = ['All', 'Announcements', 'Academic News', 'Events & Activities', 'Student Achievements', 'Notices to Parents'];
     const EMOJIS = { 'Announcements': '📢', 'Academic News': '📚', 'Events & Activities': '🎭', 'Student Achievements': '🏆', 'Notices to Parents': '📝' };
     const CAT_RED = ['Events & Activities', 'Student Achievements'];
     const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-    const SCHOOL_EVENTS = {
-      '2025-9-2': 'Resumption Day', '2025-9-14': 'PTA Meeting',
-      '2025-10-1': 'Independence Day (Holiday)', '2025-10-18': 'Mid-term Break Begins',
-      '2025-10-21': 'Mid-term Break Ends', '2025-10-25': 'Annual Sports Day',
-      '2025-11-28': 'End of First Term Exams', '2025-12-5': 'Christmas Break Begins',
-      '2026-1-5': 'Second Term Resumes', '2026-3-28': 'Second Term Ends',
-      '2026-4-20': 'Third Term Resumes', '2026-6-26': 'Third Term Ends',
-    };
-    const ANNOUNCEMENTS = [
-      { text: 'PTA Meeting — Saturday 14th Sept, 10am', date: 'Sept 8' },
-      { text: 'Mid-term break: Oct 18–20. Resumes Oct 21st.', date: 'Sept 5' },
-      { text: 'Sports Day registration now open.', date: 'Sept 12' },
-      { text: 'School fees deadline: Sept 30th.', date: 'Sept 1' },
-    ];
     const SCHOOL_PHOTOS = [
       'https://images.unsplash.com/photo-1580582932707-520aed937b7b?w=600&q=80',
       'https://images.unsplash.com/photo-1509062522246-3755977927d7?w=600&q=80',
@@ -71,19 +55,34 @@
       return data.publicUrl;
     }
 
-    /* ── Calendar ── */
-    function Calendar() {
+    /* ── Calendar (receives live events as prop) ── */
+    function Calendar({ schoolEvents }) {
       const now = new Date();
       const [year, setYear] = useState(now.getFullYear());
       const [month, setMonth] = useState(now.getMonth());
       const firstDay = new Date(year, month, 1).getDay();
       const daysInMonth = new Date(year, month + 1, 0).getDate();
       const cells = [];
-      for (let i = 0; i < firstDay; i++)cells.push(null);
-      for (let d = 1; d <= daysInMonth; d++)cells.push(d);
-      const eventsThisMonth = Object.entries(SCHOOL_EVENTS).filter(([k]) => { const [y, m] = k.split('-').map(Number); return y === year && m === month + 1 });
+      for (let i = 0; i < firstDay; i++) cells.push(null);
+      for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+
+      // Build lookup: "YYYY-M-D" → title from DB rows { event_date: "YYYY-MM-DD", title }
+      const evtMap = {};
+      schoolEvents.forEach(ev => {
+        if (!ev.event_date) return;
+        const [y, m, d] = ev.event_date.split('-').map(Number);
+        evtMap[`${y}-${m}-${d}`] = ev.title;
+      });
+
+      const eventsThisMonth = schoolEvents.filter(ev => {
+        if (!ev.event_date) return false;
+        const [y, m] = ev.event_date.split('-').map(Number);
+        return y === year && m === month + 1;
+      });
+
       function prev() { if (month === 0) { setMonth(11); setYear(y => y - 1) } else setMonth(m => m - 1) }
       function next() { if (month === 11) { setMonth(0); setYear(y => y + 1) } else setMonth(m => m + 1) }
+
       return (
         <div className="sidebar-card">
           <div className="cal-nav">
@@ -96,16 +95,17 @@
             {cells.map((d, i) => {
               if (!d) return <div key={i} className="cal-day empty" />;
               const isToday = d === now.getDate() && month === now.getMonth() && year === now.getFullYear();
-              const hasEv = !!SCHOOL_EVENTS[`${year}-${month + 1}-${d}`];
-              return <div key={i} className={`cal-day${isToday ? ' today' : hasEv ? ' has-event' : ''}`} title={SCHOOL_EVENTS[`${year}-${month + 1}-${d}`] || ''}>{d}</div>;
+              const key = `${year}-${month + 1}-${d}`;
+              const hasEv = !!evtMap[key];
+              return <div key={i} className={`cal-day${isToday ? ' today' : hasEv ? ' has-event' : ''}`} title={evtMap[key] || ''}>{d}</div>;
             })}
           </div>
           {eventsThisMonth.length > 0 && (
             <div className="cal-events">
-              {eventsThisMonth.map(([k, v]) => (
-                <div className="cal-event-item" key={k}>
-                  <div className="cal-event-date">{k.split('-')[2]} {MONTHS[month]}</div>
-                  <div>{v}</div>
+              {eventsThisMonth.map(ev => (
+                <div className="cal-event-item" key={ev.id}>
+                  <div className="cal-event-date">{ev.event_date.split('-')[2]} {MONTHS[month]}</div>
+                  <div>{ev.title}</div>
                 </div>
               ))}
             </div>
@@ -120,9 +120,186 @@
       return <div className={`toast ${type}`}>{msg}</div>;
     }
 
+    /* ── Manage Announcements Panel ── */
+    function ManageAnnouncements({ showToast }) {
+      const [items, setItems] = useState([]);
+      const [loading, setLoading] = useState(true);
+      const [text, setText] = useState('');
+      const [date, setDate] = useState('');
+      const [editId, setEditId] = useState(null);
+      const [saving, setSaving] = useState(false);
+
+      useEffect(() => { load() }, []);
+
+      async function load() {
+        setLoading(true);
+        const { data } = await sb.from('announcements').select('*').order('created_at', { ascending: false });
+        setItems(data || []);
+        setLoading(false);
+      }
+
+      function startEdit(item) { setEditId(item.id); setText(item.text); setDate(item.date) }
+      function cancelEdit() { setEditId(null); setText(''); setDate('') }
+
+      async function save() {
+        if (!text.trim() || !date.trim()) return;
+        setSaving(true);
+        if (editId) {
+          const { error } = await sb.from('announcements').update({ text, date }).eq('id', editId);
+          if (!error) { showToast('Announcement updated! ✅'); cancelEdit(); await load(); }
+          else showToast('Update failed: ' + error.message, 'error');
+        } else {
+          const { error } = await sb.from('announcements').insert([{ text, date }]);
+          if (!error) { showToast('Announcement added! 📢'); setText(''); setDate(''); await load(); }
+          else showToast('Add failed: ' + error.message, 'error');
+        }
+        setSaving(false);
+      }
+
+      async function del(id) {
+        if (!window.confirm('Delete this announcement?')) return;
+        const { error } = await sb.from('announcements').delete().eq('id', id);
+        if (!error) { showToast('Deleted.'); await load(); }
+        else showToast('Delete failed.', 'error');
+      }
+
+      return (
+        <div className="manage-section">
+          <div className="manage-section-title">📢 Announcements</div>
+          <div className="manage-form">
+            <textarea
+              className="manage-input"
+              value={text}
+              onChange={e => setText(e.target.value)}
+              placeholder="Announcement text..."
+              rows={2}
+            />
+            <input
+              className="manage-input"
+              value={date}
+              onChange={e => setDate(e.target.value)}
+              placeholder="Display date e.g. Sept 8"
+            />
+            <div className="manage-form-btns">
+              {editId && <button className="cancel-btn" onClick={cancelEdit}>Cancel</button>}
+              <button className="save-btn" onClick={save} disabled={saving}>
+                {saving ? 'Saving...' : editId ? 'Update' : '+ Add'}
+              </button>
+            </div>
+          </div>
+          {loading ? <div className="manage-loading">Loading...</div> : (
+            <div className="manage-list">
+              {items.length === 0 && <div className="manage-empty">No announcements yet.</div>}
+              {items.map(item => (
+                <div className="manage-item" key={item.id}>
+                  <div className="manage-item-body">
+                    <div className="manage-item-text">{item.text}</div>
+                    <div className="manage-item-meta">{item.date}</div>
+                  </div>
+                  <div className="manage-item-actions">
+                    <button className="edit-btn" onClick={() => startEdit(item)}>Edit</button>
+                    <button className="del-btn" onClick={() => del(item.id)}>Delete</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    /* ── Manage School Events Panel ── */
+    function ManageEvents({ showToast }) {
+      const [items, setItems] = useState([]);
+      const [loading, setLoading] = useState(true);
+      const [title, setTitle] = useState('');
+      const [eventDate, setEventDate] = useState('');
+      const [editId, setEditId] = useState(null);
+      const [saving, setSaving] = useState(false);
+
+      useEffect(() => { load() }, []);
+
+      async function load() {
+        setLoading(true);
+        const { data } = await sb.from('school_events').select('*').order('event_date', { ascending: true });
+        setItems(data || []);
+        setLoading(false);
+      }
+
+      function startEdit(item) { setEditId(item.id); setTitle(item.title); setEventDate(item.event_date) }
+      function cancelEdit() { setEditId(null); setTitle(''); setEventDate('') }
+
+      async function save() {
+        if (!title.trim() || !eventDate.trim()) return;
+        setSaving(true);
+        if (editId) {
+          const { error } = await sb.from('school_events').update({ title, event_date: eventDate }).eq('id', editId);
+          if (!error) { showToast('Event updated! ✅'); cancelEdit(); await load(); }
+          else showToast('Update failed: ' + error.message, 'error');
+        } else {
+          const { error } = await sb.from('school_events').insert([{ title, event_date: eventDate }]);
+          if (!error) { showToast('Event added! 📅'); setTitle(''); setEventDate(''); await load(); }
+          else showToast('Add failed: ' + error.message, 'error');
+        }
+        setSaving(false);
+      }
+
+      async function del(id) {
+        if (!window.confirm('Delete this event?')) return;
+        const { error } = await sb.from('school_events').delete().eq('id', id);
+        if (!error) { showToast('Deleted.'); await load(); }
+        else showToast('Delete failed.', 'error');
+      }
+
+      return (
+        <div className="manage-section">
+          <div className="manage-section-title">📅 School Calendar Events</div>
+          <div className="manage-form">
+            <input
+              className="manage-input"
+              value={title}
+              onChange={e => setTitle(e.target.value)}
+              placeholder="Event title e.g. PTA Meeting"
+            />
+            <input
+              className="manage-input"
+              type="date"
+              value={eventDate}
+              onChange={e => setEventDate(e.target.value)}
+            />
+            <div className="manage-form-btns">
+              {editId && <button className="cancel-btn" onClick={cancelEdit}>Cancel</button>}
+              <button className="save-btn" onClick={save} disabled={saving}>
+                {saving ? 'Saving...' : editId ? 'Update' : '+ Add'}
+              </button>
+            </div>
+          </div>
+          {loading ? <div className="manage-loading">Loading...</div> : (
+            <div className="manage-list">
+              {items.length === 0 && <div className="manage-empty">No events yet.</div>}
+              {items.map(item => (
+                <div className="manage-item" key={item.id}>
+                  <div className="manage-item-body">
+                    <div className="manage-item-text">{item.title}</div>
+                    <div className="manage-item-meta">{item.event_date}</div>
+                  </div>
+                  <div className="manage-item-actions">
+                    <button className="edit-btn" onClick={() => startEdit(item)}>Edit</button>
+                    <button className="del-btn" onClick={() => del(item.id)}>Delete</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    }
+
     /* ── Main App ── */
     function App() {
       const [posts, setPosts] = useState([]);
+      const [announcements, setAnnouncements] = useState([]);
+      const [schoolEvents, setSchoolEvents] = useState([]);
       const [loading, setLoading] = useState(true);
       const [page, setPage] = useState('home');
       const [selPost, setSelPost] = useState(null);
@@ -133,6 +310,7 @@
       const [authPass, setAuthPass] = useState('');
       const [authErr, setAuthErr] = useState('');
       const [showEditor, setShowEditor] = useState(false);
+      const [dashTab, setDashTab] = useState('posts'); // 'posts' | 'announcements' | 'events'
       const [editPost, setEditPost] = useState(null);
       const [eTitle, setETitle] = useState('');
       const [eCat, setECat] = useState('Announcements');
@@ -151,30 +329,33 @@
       const [uploadProgress, setUploadProgress] = useState(0);
       const [toast, setToast] = useState(null);
       const heroFileRef = useRef();
-      const [menuOpen, setMenuOpen] = React.useState(false);
+      const [menuOpen, setMenuOpen] = useState(false);
 
-
-      /* Check auth session on load and listen for changes */
-      React.useEffect(() => {
-        sb.auth.getSession().then(({ data: { session } }) => {
-          setUser(session?.user ?? null);
-        });
-
-        const { data: { subscription } } = sb.auth.onAuthStateChange((_event, session) => {
-          setUser(session?.user ?? null);
-        });
-
+      /* Check auth session on load */
+      useEffect(() => {
+        sb.auth.getSession().then(({ data: { session } }) => { setUser(session?.user ?? null) });
+        const { data: { subscription } } = sb.auth.onAuthStateChange((_event, session) => { setUser(session?.user ?? null) });
         return () => subscription.unsubscribe();
       }, []);
 
-      /* load posts from Supabase */
-      useEffect(() => { fetchPosts() }, []);
+      /* Load posts, announcements, events */
+      useEffect(() => { fetchPosts(); fetchAnnouncements(); fetchEvents() }, []);
 
       async function fetchPosts() {
         setLoading(true);
         const { data, error } = await sb.from('posts').select('*').order('created_at', { ascending: false });
         if (!error && data) setPosts(data);
         setLoading(false);
+      }
+
+      async function fetchAnnouncements() {
+        const { data } = await sb.from('announcements').select('*').order('created_at', { ascending: false });
+        if (data) setAnnouncements(data);
+      }
+
+      async function fetchEvents() {
+        const { data } = await sb.from('school_events').select('*').order('event_date', { ascending: true });
+        if (data) setSchoolEvents(data);
       }
 
       function showToast(msg, type = 'success') { setToast({ msg, type }) }
@@ -185,29 +366,15 @@
       function goBlog() { setPage('blog'); setSelPost(null); setShowEditor(false) }
 
       async function login() {
-        const { data, error } = await sb.auth.signInWithPassword({
-          email: authUser.trim().toLowerCase(),
-          password: authPass
-        });
-        if (error) {
-          setAuthErr('Invalid email or password.');
-        } else {
-          setUser(data.user);
-          setShowAuth(false);
-          setAuthErr('');
-          setAuthUser('');
-          setAuthPass('');
-          showToast(`Welcome back! 👋`);
-        }
+        const { data, error } = await sb.auth.signInWithPassword({ email: authUser.trim().toLowerCase(), password: authPass });
+        if (error) { setAuthErr('Invalid email or password.') }
+        else { setUser(data.user); setShowAuth(false); setAuthErr(''); setAuthUser(''); setAuthPass(''); showToast(`Welcome back! 👋`) }
       }
 
       async function logout() {
-        await sb.auth.signOut();
-        setUser(null);
-        setPage('home');
-        setShowEditor(false);
-        showToast('Logged out successfully.');
+        await sb.auth.signOut(); setUser(null); setPage('home'); setShowEditor(false); showToast('Logged out successfully.');
       }
+
       function openPost(p) { setSelPost(p); setPage('post'); setCName(''); setCText('') }
 
       async function addComment() {
@@ -218,10 +385,8 @@
         const { error } = await sb.from('posts').update({ comments: updatedComments }).eq('id', selPost.id);
         if (!error) {
           const updated = { ...selPost, comments: updatedComments };
-          setSelPost(updated);
-          setPosts(posts.map(p => p.id === selPost.id ? updated : p));
-          setCName(''); setCText('');
-          showToast('Comment posted! 💬');
+          setSelPost(updated); setPosts(posts.map(p => p.id === selPost.id ? updated : p));
+          setCName(''); setCText(''); showToast('Comment posted! 💬');
         } else showToast('Failed to post comment.', 'error');
         setCSaving(false);
       }
@@ -238,39 +403,26 @@
         setUploadProgress(10);
         try {
           const urls = [];
-          for (let i = 0; i < files.length; i++) {
-            const url = await uploadFile(files[i], 'images');
-            urls.push(url);
-            setUploadProgress(Math.round(((i + 1) / files.length) * 100));
-          }
-          setUploadedImages(prev => [...prev, ...urls]);
-          showToast(`${files.length} photo${files.length > 1 ? 's' : ''} uploaded! 🖼`);
+          for (let i = 0; i < files.length; i++) { const url = await uploadFile(files[i], 'images'); urls.push(url); setUploadProgress(Math.round(((i + 1) / files.length) * 100)) }
+          setUploadedImages(prev => [...prev, ...urls]); showToast(`${files.length} photo${files.length > 1 ? 's' : ''} uploaded! 🖼`);
         } catch (err) { showToast('Upload failed: ' + err.message, 'error') }
-        setUploadProgress(0);
-        e.target.value = '';
+        setUploadProgress(0); e.target.value = '';
       }
 
       async function handleVideoUpload(e) {
         const file = e.target.files[0];
         if (!file) return;
         setUploadProgress(10);
-        try {
-          const url = await uploadFile(file, 'videos');
-          setUploadedVideos(prev => [...prev, url]);
-          showToast('Video uploaded! 🎬');
-        } catch (err) { showToast('Upload failed: ' + err.message, 'error') }
-        setUploadProgress(0);
-        e.target.value = '';
+        try { const url = await uploadFile(file, 'videos'); setUploadedVideos(prev => [...prev, url]); showToast('Video uploaded! 🎬') }
+        catch (err) { showToast('Upload failed: ' + err.message, 'error') }
+        setUploadProgress(0); e.target.value = '';
       }
 
       async function handleHeroUpload(e) {
         const file = e.target.files[0];
         if (!file) return;
-        try {
-          const url = await uploadFile(file, 'hero');
-          setHeroImg(url);
-          showToast('Hero photo updated! ✅');
-        } catch (err) { showToast('Upload failed: ' + err.message, 'error') }
+        try { const url = await uploadFile(file, 'hero'); setHeroImg(url); showToast('Hero photo updated! ✅') }
+        catch (err) { showToast('Upload failed: ' + err.message, 'error') }
         e.target.value = '';
       }
 
@@ -288,11 +440,11 @@
         };
         if (editPost) {
           const { error } = await sb.from('posts').update(payload).eq('id', editPost.id);
-          if (!error) { showToast('Post updated! ✅'); await fetchPosts(); setShowEditor(false); }
+          if (!error) { showToast('Post updated! ✅'); await fetchPosts(); setShowEditor(false) }
           else showToast('Save failed: ' + error.message, 'error');
         } else {
           const { error } = await sb.from('posts').insert([payload]);
-          if (!error) { showToast('Post published! 🎉'); await fetchPosts(); setShowEditor(false); }
+          if (!error) { showToast('Post published! 🎉'); await fetchPosts(); setShowEditor(false) }
           else showToast('Publish failed: ' + error.message, 'error');
         }
         setSaving(false);
@@ -301,7 +453,7 @@
       async function deletePost(id) {
         if (!window.confirm('Delete this post?')) return;
         const { error } = await sb.from('posts').delete().eq('id', id);
-        if (!error) { setPosts(posts.filter(p => p.id !== id)); showToast('Post deleted.'); }
+        if (!error) { setPosts(posts.filter(p => p.id !== id)); showToast('Post deleted.') }
         else showToast('Delete failed.', 'error');
       }
 
@@ -309,16 +461,15 @@
         if (!aiPrompt.trim()) return;
         setAiLoading(true);
         try {
-          const res = await sb.functions.invoke('ai-write', {
-            body: { prompt: aiPrompt, category: eCat }
-          });
-          setEBody(res.data?.text || '');
-          showToast('AI content generated! ✨');
-        } catch (e) {
-          showToast('AI generation failed.', 'error');
-        }
+          const res = await sb.functions.invoke('ai-write', { body: { prompt: aiPrompt, category: eCat } });
+          setEBody(res.data?.text || ''); showToast('AI content generated! ✨');
+        } catch (e) { showToast('AI generation failed.', 'error') }
         setAiLoading(false);
       }
+
+      // Wrap showToast + refresh for child panels
+      function toastAndRefreshAnn(msg, type) { showToast(msg, type); fetchAnnouncements() }
+      function toastAndRefreshEv(msg, type) { showToast(msg, type); fetchEvents() }
 
       return (
         <div className="app">
@@ -334,27 +485,16 @@
                 <div className="brand-sub">Official School Blog</div>
               </div>
             </div>
-
-            {/* Hamburger toggle - only visible on mobile */}
-            <button
-              className={`nav-toggle${menuOpen ? ' open' : ''}`}
-              onClick={() => setMenuOpen(o => !o)}
-              aria-label="Toggle menu"
-            >
-              <span />
-              <span />
-              <span />
+            <button className={`nav-toggle${menuOpen ? ' open' : ''}`} onClick={() => setMenuOpen(o => !o)} aria-label="Toggle menu">
+              <span /><span /><span />
             </button>
-
             <div className={`nav-links${menuOpen ? ' open' : ''}`}>
               <button className={`nav-btn${page === 'home' ? ' active' : ''}`} onClick={() => { goHome(); setMenuOpen(false) }}>Home</button>
               <button className={`nav-btn${page === 'blog' ? ' active' : ''}`} onClick={() => { goBlog(); setMenuOpen(false) }}>Blog</button>
               <button className={`nav-btn${page === 'about' ? ' active' : ''}`} onClick={() => { setPage('about'); setSelPost(null); setShowEditor(false); setMenuOpen(false) }}>About</button>
               {user && <button className={`nav-btn${page === 'dashboard' ? ' active' : ''}`} onClick={() => { setPage('dashboard'); setShowEditor(false); setMenuOpen(false) }}>Dashboard</button>}
               {user
-                ? <button className="nav-login" onClick={() => { logout(); setMenuOpen(false) }}>
-                  Logout ({user.email.split('@')[0]})
-                </button>
+                ? <button className="nav-login" onClick={() => { logout(); setMenuOpen(false) }}>Logout ({user.email.split('@')[0]})</button>
                 : <button className="nav-login" onClick={() => { setShowAuth(true); setMenuOpen(false) }}>Staff Login</button>
               }
             </div>
@@ -370,13 +510,7 @@
                 <div className="auth-title">Staff Portal</div>
                 <div className="auth-sub">Sign in to manage the school blog</div>
                 <label className="auth-label">Email</label>
-                <input
-                  className="auth-input"
-                  value={authUser}
-                  onChange={e => setAuthUser(e.target.value)}
-                  placeholder="e.g. admin@oboro.com"  // ← change this
-                  onKeyDown={e => e.key === 'Enter' && login()}
-                />
+                <input className="auth-input" value={authUser} onChange={e => setAuthUser(e.target.value)} placeholder="e.g. admin@oboro.com" onKeyDown={e => e.key === 'Enter' && login()} />
                 <label className="auth-label">Password</label>
                 <input className="auth-input" type="password" value={authPass} onChange={e => setAuthPass(e.target.value)} placeholder="Password" onKeyDown={e => e.key === 'Enter' && login()} />
                 <button className="auth-btn" onClick={login}>Sign In</button>
@@ -465,24 +599,42 @@
               <div className="dashboard">
                 <div className="dash-header">
                   <div className="dash-title">Dashboard — {user.email.split('@')[0]}</div>
-                  <button className="dash-new-btn" onClick={() => openEditor()}>+ New Post</button>
+                  {dashTab === 'posts' && <button className="dash-new-btn" onClick={() => openEditor()}>+ New Post</button>}
                 </div>
-                {loading ? <div className="loading-screen"><div className="spinner" /><div className="loading-text">Loading posts...</div></div> : (
-                  <div className="dash-table">
-                    <div className="dash-row dash-row-header"><div /><div>Post</div><div>Category</div><div>Actions</div></div>
-                    {posts.length === 0 && <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--muted)', fontSize: '14px' }}>No posts yet. Create your first one!</div>}
-                    {posts.map(p => (
-                      <div className="dash-row" key={p.id}>
-                        <div className="dash-thumb">{p.cover_url ? <img src={p.cover_url} alt="" /> : <span>{EMOJIS[p.category] || '📄'}</span>}</div>
-                        <div><div className="dash-post-title">{p.title}</div><div className="dash-post-meta">{p.author} · {fmtDate(p.date)}</div></div>
-                        <div><span className={`cat-tag${CAT_RED.includes(p.category) ? ' red' : ''}`}>{p.category}</span></div>
-                        <div className="dash-actions">
-                          <button className="edit-btn" onClick={() => openEditor(p)}>Edit</button>
-                          {user.email === 'admin@oboro.com' && <button className="del-btn" onClick={() => deletePost(p.id)}>Delete</button>}
+
+                {/* Dashboard tabs */}
+                <div className="dash-tabs">
+                  <button className={`dash-tab${dashTab === 'posts' ? ' active' : ''}`} onClick={() => setDashTab('posts')}>📝 Posts</button>
+                  <button className={`dash-tab${dashTab === 'announcements' ? ' active' : ''}`} onClick={() => setDashTab('announcements')}>📢 Announcements</button>
+                  <button className={`dash-tab${dashTab === 'events' ? ' active' : ''}`} onClick={() => setDashTab('events')}>📅 Calendar Events</button>
+                </div>
+
+                {dashTab === 'posts' && (
+                  loading ? <div className="loading-screen"><div className="spinner" /><div className="loading-text">Loading posts...</div></div> : (
+                    <div className="dash-table">
+                      <div className="dash-row dash-row-header"><div /><div>Post</div><div>Category</div><div>Actions</div></div>
+                      {posts.length === 0 && <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--muted)', fontSize: '14px' }}>No posts yet. Create your first one!</div>}
+                      {posts.map(p => (
+                        <div className="dash-row" key={p.id}>
+                          <div className="dash-thumb">{p.cover_url ? <img src={p.cover_url} alt="" /> : <span>{EMOJIS[p.category] || '📄'}</span>}</div>
+                          <div><div className="dash-post-title">{p.title}</div><div className="dash-post-meta">{p.author} · {fmtDate(p.date)}</div></div>
+                          <div><span className={`cat-tag${CAT_RED.includes(p.category) ? ' red' : ''}`}>{p.category}</span></div>
+                          <div className="dash-actions">
+                            <button className="edit-btn" onClick={() => openEditor(p)}>Edit</button>
+                            {user.email === 'admin@oboro.com' && <button className="del-btn" onClick={() => deletePost(p.id)}>Delete</button>}
+                          </div>
                         </div>
-                      </div>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                  )
+                )}
+
+                {dashTab === 'announcements' && (
+                  <ManageAnnouncements showToast={(msg, type) => { showToast(msg, type); fetchAnnouncements() }} />
+                )}
+
+                {dashTab === 'events' && (
+                  <ManageEvents showToast={(msg, type) => { showToast(msg, type); fetchEvents() }} />
                 )}
               </div>
             )
@@ -563,9 +715,7 @@
                 <div className="about-section-sub">A glimpse into the vibrant community of our schools — from classrooms to celebrations.</div>
                 <div className="photo-gallery">
                   {SCHOOL_PHOTOS.map((src, i) => (
-                    <div className="gallery-item" key={i} onClick={() => setLightbox(src)}>
-                      <img src={src} alt={`School photo ${i + 1}`} />
-                    </div>
+                    <div className="gallery-item" key={i} onClick={() => setLightbox(src)}><img src={src} alt={`School photo ${i + 1}`} /></div>
                   ))}
                 </div>
                 <div className="about-section-title">👩‍🏫 Meet Our Staff</div>
@@ -609,7 +759,7 @@
                         <button className="btn-outline-w" onClick={() => { setPage('about'); setSelPost(null) }}>About Our Schools</button>
                       </div>
                     </div>
-                    {user && user.role === 'Admin' && (
+                    {user && (
                       <>
                         <button className="hero-change-btn" onClick={() => heroFileRef.current.click()}>🖼 Change Hero Photo</button>
                         <input ref={heroFileRef} type="file" accept="image/*" className="hero-file-input" onChange={handleHeroUpload} />
@@ -659,14 +809,15 @@
                 <aside className="sidebar">
                   <div className="sidebar-card">
                     <div className="sidebar-title">Quick Announcements</div>
-                    {ANNOUNCEMENTS.map((a, i) => (
-                      <div className="ann-item" key={i}>
+                    {announcements.length === 0 && <div style={{ color: 'var(--muted)', fontSize: '13px', padding: '8px 0' }}>No announcements yet.</div>}
+                    {announcements.map((a) => (
+                      <div className="ann-item" key={a.id}>
                         <div className="ann-dot" />
                         <div><div className="ann-text">{a.text}</div><div className="ann-date">{a.date}</div></div>
                       </div>
                     ))}
                   </div>
-                  <Calendar />
+                  <Calendar schoolEvents={schoolEvents} />
                   <div className="sidebar-card">
                     <div className="sidebar-title">Blog Stats</div>
                     <div className="stats-grid">
@@ -695,6 +846,8 @@
     }
     ReactDOM.createRoot(document.getElementById('root')).render(<App />);
   </script>
+
+
 </body>
 
 </html>
