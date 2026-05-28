@@ -26,12 +26,7 @@
     const SUPA_KEY = 'sb_publishable_FCvs0VYi_NlJ7qFOCQsW7w_liY15uY7';
     const sb = supabase.createClient(SUPA_URL, SUPA_KEY);
 
-    /* ── Constants ── */
-    const ACCOUNTS = {
-      admin: { password: 'admin123', role: 'Admin', name: 'School Admin' },
-      teacher1: { password: 'teacher123', role: 'Teacher', name: 'Mr. Okoro Emmanuel' },
-      teacher2: { password: 'teacher456', role: 'Teacher', name: 'Mrs. Nwachukwu Grace' },
-    };
+  
     const CATEGORIES = ['All', 'Announcements', 'Academic News', 'Events & Activities', 'Student Achievements', 'Notices to Parents'];
     const EMOJIS = { 'Announcements': '📢', 'Academic News': '📚', 'Events & Activities': '🎭', 'Student Achievements': '🏆', 'Notices to Parents': '📝' };
     const CAT_RED = ['Events & Activities', 'Student Achievements'];
@@ -161,11 +156,11 @@
 
       /* Check auth session on load and listen for changes */
       React.useEffect(() => {
-        supabase.auth.getSession().then(({ data: { session } }) => {
+        sb.auth.getSession().then(({ data: { session } }) => {
           setUser(session?.user ?? null);
         });
 
-        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+        const { data: { subscription } } = sb.auth.onAuthStateChange((_event, session) => {
           setUser(session?.user ?? null);
         });
 
@@ -190,7 +185,7 @@
       function goBlog() { setPage('blog'); setSelPost(null); setShowEditor(false) }
 
       async function login() {
-        const { data, error } = await supabase.auth.signInWithPassword({
+        const { data, error } = await sb.auth.signInWithPassword({
           email: authUser.trim().toLowerCase(),
           password: authPass
         });
@@ -207,7 +202,7 @@
       }
 
       async function logout() {
-        await supabase.auth.signOut();
+        await sb.auth.signOut();
         setUser(null);
         setPage('home');
         setShowEditor(false);
@@ -284,7 +279,7 @@
         setSaving(true);
         const cover = uploadedImages[0] || null;
         const payload = {
-          title: eTitle, category: eCat, author: user.name,
+          title: eTitle, category: eCat, author: user.email.split('@')[0],
           date: new Date().toISOString().slice(0, 10),
           excerpt: eBody.replace(/\n/g, ' ').slice(0, 150) + '...',
           content: eBody, cover_url: cover,
@@ -382,7 +377,6 @@
                   placeholder="e.g. admin@oboro.com"  // ← change this
                   onKeyDown={e => e.key === 'Enter' && login()}
                 />
-                <input className="auth-input" value={authUser} onChange={e => setAuthUser(e.target.value)} placeholder="e.g. admin" onKeyDown={e => e.key === 'Enter' && login()} />
                 <label className="auth-label">Password</label>
                 <input className="auth-input" type="password" value={authPass} onChange={e => setAuthPass(e.target.value)} placeholder="Password" onKeyDown={e => e.key === 'Enter' && login()} />
                 <button className="auth-btn" onClick={login}>Sign In</button>
@@ -403,7 +397,7 @@
                     <select className="editor-select" value={eCat} onChange={e => setECat(e.target.value)}>
                       {CATEGORIES.slice(1).map(c => <option key={c}>{c}</option>)}
                     </select>
-                    <div style={{ fontSize: '12px', color: 'var(--muted)', display: 'flex', alignItems: 'center' }}>Author: <strong style={{ marginLeft: '4px', color: 'var(--text)' }}>{user.name}</strong></div>
+                    <div style={{ fontSize: '12px', color: 'var(--muted)', display: 'flex', alignItems: 'center' }}>Author: <strong style={{ marginLeft: '4px', color: 'var(--text)' }}>{user.email.split('@')[0]}</strong></div>
                   </div>
                   <div className="ai-bar">
                     <span className="ai-tag">✨ AI Write</span>
@@ -470,7 +464,7 @@
             ) : (
               <div className="dashboard">
                 <div className="dash-header">
-                  <div className="dash-title">Dashboard — {user.role}</div>
+                  <div className="dash-title">Dashboard — {user.email.split('@')[0]}</div>
                   <button className="dash-new-btn" onClick={() => openEditor()}>+ New Post</button>
                 </div>
                 {loading ? <div className="loading-screen"><div className="spinner" /><div className="loading-text">Loading posts...</div></div> : (
@@ -484,7 +478,7 @@
                         <div><span className={`cat-tag${CAT_RED.includes(p.category) ? ' red' : ''}`}>{p.category}</span></div>
                         <div className="dash-actions">
                           <button className="edit-btn" onClick={() => openEditor(p)}>Edit</button>
-                          {user.role === 'Admin' && <button className="del-btn" onClick={() => deletePost(p.id)}>Delete</button>}
+                          {user.email === 'admin@oboro.com' && <button className="del-btn" onClick={() => deletePost(p.id)}>Delete</button>}
                         </div>
                       </div>
                     ))}
