@@ -26,7 +26,7 @@
     const SUPA_KEY = 'sb_publishable_FCvs0VYi_NlJ7qFOCQsW7w_liY15uY7';
     const sb = supabase.createClient(SUPA_URL, SUPA_KEY);
 
-  
+
     const CATEGORIES = ['All', 'Announcements', 'Academic News', 'Events & Activities', 'Student Achievements', 'Notices to Parents'];
     const EMOJIS = { 'Announcements': '📢', 'Academic News': '📚', 'Events & Activities': '🎭', 'Student Achievements': '🏆', 'Notices to Parents': '📝' };
     const CAT_RED = ['Events & Activities', 'Student Achievements'];
@@ -309,14 +309,14 @@
         if (!aiPrompt.trim()) return;
         setAiLoading(true);
         try {
-          const res = await fetch('https://api.anthropic.com/v1/messages', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 1000, messages: [{ role: 'user', content: `You are a Nigerian school blog writer for Oboro Primary School and Benikrukru Secondary School, Delta State. Write a warm, professional blog post body (no title) about: "${aiPrompt}". Category: ${eCat}. Write 2-4 paragraphs. Community-focused tone. Plain text only, no markdown.` }] })
+          const res = await sb.functions.invoke('ai-write', {
+            body: { prompt: aiPrompt, category: eCat }
           });
-          const data = await res.json();
-          setEBody(data.content?.find(b => b.type === 'text')?.text || '');
+          setEBody(res.data?.text || '');
           showToast('AI content generated! ✨');
-        } catch (e) { showToast('AI generation failed.', 'error') }
+        } catch (e) {
+          showToast('AI generation failed.', 'error');
+        }
         setAiLoading(false);
       }
 
